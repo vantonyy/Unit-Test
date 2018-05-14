@@ -10,7 +10,6 @@
 #include <sstream>
 #include <memory>
 
-
 class Test
 {
 public:
@@ -138,6 +137,6 @@ TestInfo::registerTestInfo(const std::string& testName, const std::string& testC
 usage:
 	TEST(<test name>, <test case name>)
 	{
-		< test body>
+		<test body>
 	}
 */
