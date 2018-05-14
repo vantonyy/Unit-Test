@@ -1,69 +1,143 @@
-#pragma once
+#pragma	once
+
+#include "common.hpp"
 
 #include <map>
 #include <list>
 #include <functional>
 #include <iostream>
 #include <string>
+#include <sstream>
+#include <memory>
 
-class UnitTests
+
+class Test
 {
 public:
-	typedef std::function<void()> testCaseFunction;
+	typedef std::shared_ptr<Test> ptr;
 
-	class testCase
-	{
-	public:
-		testCase(const std::string& name, testCaseFunction func)
-			: m_name(name)
-			, m_func(func)
-		{}
-	
-		std::string m_name;
-		testCaseFunction m_func;
-	};
+	virtual void run() = 0;
+};
 
+class TestCreatorBase
+{
 public:
-	static void add(const std::string& testName, const std::string& testCaseName, testCaseFunction func)
+	typedef std::shared_ptr<TestCreatorBase> ptr;
+
+	virtual Test::ptr createTest() const = 0;
+};
+
+template <typename TestType>
+class TestCreator : public TestCreatorBase
+{
+public:
+	virtual Test::ptr createTest() const
 	{
-		s_tests[testName].push_back(testCase(testCaseName, func));
+		return Test::ptr(new TestType());
+	}
+};
+
+class TestInfo
+{
+public:
+	typedef std::shared_ptr<TestInfo> ptr;
+private:
+	TestInfo(const std::string& testName, const std::string& testCaseName, 
+		 const common::CodeLocation& codeLocation, TestCreatorBase::ptr creator)
+		: m_testName(testName)
+		, m_testCaseName(testCaseName)
+		, m_codeLocation(codeLocation)
+		, m_creator(creator)
+	{
+	}
+public:
+	static ptr registerTestInfo(const std::string& testName, const std::string& testCaseName, 
+				    const common::CodeLocation& codeLocation, TestCreatorBase::ptr creator);
+
+	std::string getTestName() const
+	{
+		return  m_testName;
+	}
+
+	std::string getTestCaseName() const
+	{
+		return  m_testCaseName;
+	}
+
+	const common::CodeLocation& getCodeLocation() const
+	{
+		return m_codeLocation;
+	}
+
+	Test::ptr createTest() const
+	{
+		return m_creator->createTest();
+	}
+private:
+	const std::string m_testName;
+	const std::string m_testCaseName;
+	common::CodeLocation m_codeLocation;
+	TestCreatorBase::ptr m_creator;
+};
+
+class UnitTest
+{
+public:
+	static void regiterTest(TestInfo::ptr p)
+	{
+		s_testInfos[p->getTestName()].push_back(p);
 	}
 
 	static void run()
 	{
-		for (auto i : s_tests) {
-			std::cout << "Test: " << i.first << "\n";
-			for (auto j : i.second) {
-				std::cout << "\tCase: " << j.m_name << "\n";
-				j.m_func();
+		//TODO: implement
+		/*for (auto it : s_testInfos) {
+			std::cout << "Runing... Test: " << it.first << std::endl;
+			for (TestInfo::ptr testInfo : it.second) {
+				std::cout << "\t\tTest-case: " << testInfo->getTestCaseName() << std::endl;
+				Test::ptr test = testInfo->createTest();
+				test->run();
 			}
-		}
+		}*/
 	}
 private:
-	static std::map<std::string, std::list<testCase>> s_tests;
+	static std::map<std::string, std::list<TestInfo::ptr> > s_testInfos;
 };
 
-std::map<std::string, std::list<UnitTests::testCase>> UnitTests::s_tests;
+std::map<std::string, std::list<TestInfo::ptr>> UnitTest::s_testInfos;
 
-
-class UnitTestAdder
+TestInfo::ptr 
+TestInfo::registerTestInfo(const std::string& testName, const std::string& testCaseName,
+			   const common::CodeLocation& codeLocation, TestCreatorBase::ptr creator)
 {
-public:
-	UnitTestAdder(const std::string& testName, const std::string& testCaseName, UnitTests::testCaseFunction func)
-	{
-		UnitTests::add(testName, testCaseName, func);
-	}
-};
+	TestInfo::ptr p(new TestInfo(testName, testCaseName, codeLocation, creator));
+	UnitTest::regiterTest(p);
+	return p;
+}
 
-#ifndef PRE_CHECK_ARGS
-#define PRE_CHECK_ARGS(testName, testCaseName);
-#endif // !PRE_CHECK_ARGS
+#define CLASS_NAME(testName, testCaseName) testName##_##testCaseName
 
+// Helper macro for defining tests.
 #ifndef TEST
-#define TEST(testName, testCaseName)  \
-	PRE_CHECK_ARGS(testName, testCaseName)	\
-	void func_##testCaseName##_of_##testName(); 	\
-	UnitTestAdder adder_##testCaseName##_for_##testName(#testName, #testCaseName, \
-							    func_##testCaseName##_of_##testName); \
-	void func_##testCaseName##_of_##testName()
+#define TEST(testName, testCaseName) \
+	class CLASS_NAME(testName, testCaseName) : public Test \
+	{ \
+	public:	\
+		virtual void run(); \
+		static TestInfo::ptr s_testInfo; \
+	}; \
+	TestInfo::ptr CLASS_NAME(testName, testCaseName)::s_testInfo = \
+			    TestInfo::registerTestInfo(#testName, #testCaseName, common::CodeLocation(__FILE__, __LINE__), \
+					               TestCreatorBase::ptr(new TestCreator<CLASS_NAME(testName, testCaseName)>)); \
+	void CLASS_NAME(testName, testCaseName)::run()
 #endif // !TEST
+
+
+
+/*
+usage:
+	TEST(<test name>, <test case name>)
+	{
+		< test body>
+	}
+*/
