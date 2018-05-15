@@ -7,135 +7,146 @@
 #include <functional>
 #include <iostream>
 #include <string>
+#include <set>
 #include <sstream>
 #include <memory>
 
-class Test
+class TestPoint
 {
 public:
-	typedef std::shared_ptr<Test> ptr;
+	TestPoint(const std::string& name)
+		: m_name(name)
+	{}
 
+	virtual ~TestPoint()
+	{}
+
+	const std::string& getName() const
+	{
+		return m_name;
+	}
+
+	typedef std::shared_ptr<TestPoint> ptr;
 	virtual void run() = 0;
-};
 
-class TestCreatorBase
-{
-public:
-	typedef std::shared_ptr<TestCreatorBase> ptr;
-
-	virtual Test::ptr createTest() const = 0;
-};
-
-template <typename TestType>
-class TestCreator : public TestCreatorBase
-{
-public:
-	virtual Test::ptr createTest() const
-	{
-		return Test::ptr(new TestType());
-	}
-};
-
-class TestInfo
-{
-public:
-	typedef std::shared_ptr<TestInfo> ptr;
-private:
-	TestInfo(const std::string& testName, const std::string& testCaseName, 
-		 const common::CodeLocation& codeLocation, TestCreatorBase::ptr creator)
-		: m_testName(testName)
-		, m_testCaseName(testCaseName)
-		, m_codeLocation(codeLocation)
-		, m_creator(creator)
-	{
-	}
-public:
-	static ptr registerTestInfo(const std::string& testName, const std::string& testCaseName, 
-				    const common::CodeLocation& codeLocation, TestCreatorBase::ptr creator);
-
-	std::string getTestName() const
-	{
-		return  m_testName;
-	}
-
-	std::string getTestCaseName() const
-	{
-		return  m_testCaseName;
-	}
-
-	const common::CodeLocation& getCodeLocation() const
-	{
-		return m_codeLocation;
-	}
-
-	Test::ptr createTest() const
-	{
-		return m_creator->createTest();
-	}
-private:
-	const std::string m_testName;
-	const std::string m_testCaseName;
-	common::CodeLocation m_codeLocation;
-	TestCreatorBase::ptr m_creator;
+	std::string m_name;
 };
 
 class UnitTest
 {
 public:
-	static void regiterTest(TestInfo::ptr p)
+	typedef std::shared_ptr<UnitTest> ptr;
+	typedef std::list<TestPoint::ptr> TestPoints;
+public:
+	explicit UnitTest(const std::string& name)
+		: m_name(name)
+	{}
+
+	const std::string& getName() const
 	{
-		s_testInfos[p->getTestName()].push_back(p);
+		return m_name;
+	}
+
+	const TestPoints& getTestPoints() const
+	{
+		return m_points;
+	}
+
+	void addTestPoint(TestPoint::ptr p)
+	{
+		m_points.push_back(p);
+	}
+private:
+	const std::string m_name;
+	TestPoints m_points;
+};
+
+class TesttSuites
+{
+private:
+	struct UnitTestComparator
+	{
+		bool operator()(const UnitTest::ptr& a, const UnitTest::ptr& b) const
+		{
+			return a->getName() < b->getName();
+		}
+	};
+	typedef std::set<UnitTest::ptr, UnitTestComparator> tests;
+public:
+	static void registerUnitTest(UnitTest::ptr p)
+	{
+		s_tests.insert(p);
+	}
+
+	static UnitTest::ptr findUnitTest(const std::string& name)
+	{
+		UnitTest::ptr test(new UnitTest(name));
+		auto found = s_tests.find(test);
+		return found != s_tests.end() ? *found : UnitTest::ptr();
 	}
 
 	static void run()
 	{
-		//TODO: implement
-		/*for (auto it : s_testInfos) {
-			std::cout << "Runing... Test: " << it.first << std::endl;
-			for (TestInfo::ptr testInfo : it.second) {
-				std::cout << "\t\tTest-case: " << testInfo->getTestCaseName() << std::endl;
-				Test::ptr test = testInfo->createTest();
-				test->run();
+		for (auto it : s_tests) {
+			std::cout << "Runing... Test: " << it->getName()<< std::endl;
+			for (TestPoint::ptr testPoint : it->getTestPoints()) {
+				std::cout << "\t\tTest-point: " << testPoint->getName() << std::endl;
+				testPoint->run();
 			}
-		}*/
+		}
 	}
 private:
-	static std::map<std::string, std::list<TestInfo::ptr> > s_testInfos;
+	static tests s_tests;
 };
 
-std::map<std::string, std::list<TestInfo::ptr>> UnitTest::s_testInfos;
+TesttSuites::tests TesttSuites::s_tests;
 
-TestInfo::ptr 
-TestInfo::registerTestInfo(const std::string& testName, const std::string& testCaseName,
-			   const common::CodeLocation& codeLocation, TestCreatorBase::ptr creator)
+template <typename TestPointType>
+UnitTest::ptr getOrCreateOwner(const std::string& name,
+				const common::CodeLocation& codeLocation)
 {
-	TestInfo::ptr p(new TestInfo(testName, testCaseName, codeLocation, creator));
-	UnitTest::regiterTest(p);
-	return p;
+	TestPoint::ptr testPoint(new TestPointType);
+	UnitTest::ptr test = TesttSuites::findUnitTest(name);
+	if (0 == test) {
+		test.reset(new UnitTest(name));
+		TesttSuites::registerUnitTest(test);
+	}
+	test->addTestPoint(testPoint);
+	return test;
 }
 
-#define CLASS_NAME(testName, testCaseName) testName##_##testCaseName
+#define CLASS_NAME(testName, testPointName) testName##_##testPointName
 
 // Helper macro for defining tests.
 #ifndef TEST
-#define TEST(testName, testCaseName) \
-	class CLASS_NAME(testName, testCaseName) : public Test \
+#define TEST(testName, testPointName) \
+	class CLASS_NAME(testName, testPointName)  \
+		: public TestPoint \
 	{ \
 	public:	\
+		CLASS_NAME(testName, testPointName)() \
+			: TestPoint(#testPointName) \
+		{} \
 		virtual void run(); \
-		static TestInfo::ptr s_testInfo; \
+		static UnitTest::ptr s_owner; \
 	}; \
-	TestInfo::ptr CLASS_NAME(testName, testCaseName)::s_testInfo = \
-			    TestInfo::registerTestInfo(#testName, #testCaseName, common::CodeLocation(__FILE__, __LINE__), \
-					               TestCreatorBase::ptr(new TestCreator<CLASS_NAME(testName, testCaseName)>)); \
-	void CLASS_NAME(testName, testCaseName)::run()
+	UnitTest::ptr CLASS_NAME(testName, testPointName)::s_owner = \
+			    getOrCreateOwner<CLASS_NAME(testName, testPointName)>(#testName, \
+							common::CodeLocation(__FILE__, __LINE__)); \
+	void CLASS_NAME(testName, testPointName)::run()
 #endif // !TEST
 
+//TODO: implement
+//#define EXPECTED_EQUAL(a, b)
+//#define EXPECTED_NOT_EQUAL(a, b)
+//#define EXPECTED_TRUE(a)
+//#define EXPECTED_FALSE(a)
 
+#define RUN_UNIT_TESTS TesttSuites::run();
 
 /*
 usage:
-	TEST(<test name>, <test case name>)
+	TEST(<test name>, <test point name>)
 	{
 		<test body>
 	}
