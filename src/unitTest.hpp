@@ -28,8 +28,8 @@ public:
 
 	typedef std::shared_ptr<TestPoint> ptr;
 	virtual void run() = 0;
-
-	std::string m_name;
+private:
+	const std::string m_name;
 };
 
 class UnitTest
